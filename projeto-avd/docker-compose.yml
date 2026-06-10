@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  streamlit:
+    build: .
+    container_name: projeto-avd
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    restart: unless-stopped
+    networks:
+      - avd-network
+
+networks:
+  avd-network:
+    driver: bridge
