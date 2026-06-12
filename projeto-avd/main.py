@@ -78,11 +78,18 @@ st.markdown("""
 def carregar_dados() -> dict:
     ibov  = data_extraction.fetch_ibovespa("2y")
     selic = data_extraction.fetch_selic(26)
-    resultado = etl.run(ibov, selic)
+    news  = data_extraction.fetch_economic_news(12)
+    resultado = etl.run(ibov, selic, news)
     return {
         "ibov_metrics": resultado["ibov_metrics"],
         "merged":       resultado["merged"],
         "ml_features":  resultado["ml_features"],
+        "news":         resultado["news"],
+        "news_summary": resultado["news_summary"],
+        "fontes": {
+            "selic": selic.attrs.get("fonte", "api"),
+            "news":  news.attrs.get("fonte", "scraping"),
+        },
     }
 
 
@@ -105,6 +112,20 @@ with st.sidebar:
     ibov_m = dados["ibov_metrics"]
     merged = dados["merged"]
     ml_f   = dados["ml_features"]
+    news   = dados["news"]
+    news_summary = dados["news_summary"]
+    fontes = dados.get("fontes", {})
+
+    if fontes.get("selic") == "sintetica":
+        st.warning(
+            "⚠️ API do Banco Central indisponível nesta execução. "
+            "A série da Selic exibida é **sintética** (aproximação histórica)."
+        )
+    if fontes.get("news") == "fallback":
+        st.warning(
+            "⚠️ Scraping de notícias indisponível nesta execução. "
+            "As manchetes exibidas são exemplos de **fallback**."
+        )
 
     selic_atual = float(merged["selic_anual"].iloc[-1]) if not merged.empty else 0.1375
     # Garante que o valor esteja em % a.a. (1–25), não em decimal (0.01–0.25)
@@ -123,7 +144,7 @@ with st.sidebar:
         "Projeto AVD — Python: análise comparativa de estratégias de "
         "alocação de capital com dados reais do IBOVESPA e da Selic (BCB)."
     )
-    st.caption("Fases: Extração → ETL → Análise → Gestalt → Streamlit")
+    st.caption("Fases: Scraping/API → ETL → Análise → Gestalt → Streamlit")
 
 
 # ── Header ────────────────────────────────────────────────────────────────────
@@ -164,6 +185,13 @@ if not merged.empty and not ibov_m.empty:
     _kpi(k4, "Volatilidade",        f"{vol_atual:.1f}%",              "anualizada — janela 21d",           "neu")
     _kpi(k5, "Poupança a.a.",       f"{poup_aa:.2f}%",               "rendimento atual",                  "pos")
     st.markdown("")
+
+if news_summary["total"] > 0:
+    nk1, nk2, nk3, nk4 = st.columns(4)
+    _kpi(nk1, "Notícias", str(news_summary["total"]), "manchetes raspadas", "neu")
+    _kpi(nk2, "Fontes", str(news_summary["fontes"]), "portais HTML", "neu")
+    _kpi(nk3, "Sentimento Pos.", str(news_summary["positivas"]), "manchetes positivas", "pos")
+    _kpi(nk4, "Tema Lider", news_summary["tema_principal"], "cluster dominante", "warn")
 
 st.divider()
 
@@ -279,7 +307,7 @@ with tab1:
         with col_ci:
             corr = analysis.pearson_selic_ibov(merged)
             sinal_c = "badge-neg" if corr["r"] < 0 else "badge-pos"
-            sig_c   = "Significativo (p < 0,05)" if corr["significativo"] else "Nao significativo"
+            sig_c   = "Significativo (p < 0,05)" if corr["significativo"] else "Não significativo"
             st.markdown(
                 f"<div class='kpi' style='text-align:left; padding:20px; margin-top:40px;'>"
                 f"<div class='kpi-label'>Correlação de Pearson</div>"
@@ -291,6 +319,53 @@ with tab1:
                 f"</div>",
                 unsafe_allow_html=True,
             )
+
+    st.divider()
+    st.markdown("<div class='sec'>Princípios de Gestalt aplicados</div>", unsafe_allow_html=True)
+    st.markdown("""
+    - **Proximidade:** KPIs relacionados são agrupados em blocos no topo do dashboard.
+    - **Similaridade:** cores fixas por estratégia — Poupança em verde, Renda Fixa em azul, Renda Variável em roxo.
+    - **Continuidade:** séries temporais traçadas como linhas contínuas, sem marcadores isolados.
+    - **Figura/fundo:** tema escuro (#0e1117) destaca os elementos de dados sobre o plano de fundo.
+    - **Pregnância:** layout enxuto, com poucas seções por aba e hierarquia visual clara.
+    """)
+
+    st.divider()
+    st.markdown("<div class='sec'>Scraping de Notícias Econômicas</div>", unsafe_allow_html=True)
+    st.markdown("""
+    <div class='narrative'>
+    O projeto coleta manchetes de portais de economia por meio de parsing de HTML.
+    As tags <strong>h1-h4</strong> e links associados são processados no ETL para gerar
+    métricas de sentimento e tema dominante do noticiário recente.<br><br>
+    O scraping é feito de verdade nos portais <strong>InfoMoney</strong> e <strong>CNN Brasil</strong>
+    com <strong>BeautifulSoup</strong>, percorrendo as tags de título <strong>h1–h4</strong> de cada página.
+    Já os dados de <strong>IBOVESPA</strong> (Yahoo Finance) e <strong>Selic</strong> (API SGS do Banco Central)
+    vêm de API, conforme a orientação do projeto para o tema Finanças.
+    </div>
+    """, unsafe_allow_html=True)
+    if fontes.get("news") == "fallback":
+        st.warning(
+            "O scraping em tempo real (InfoMoney/CNN Brasil) não respondeu nesta execução — "
+            "as manchetes abaixo são exemplos de **fallback**, não dados reais."
+        )
+    nn1, nn2, nn3 = st.columns(3)
+    _kpi(nn1, "Positivas", str(news_summary["positivas"]), "sinal de mercado", "pos")
+    _kpi(nn2, "Negativas", str(news_summary["negativas"]), "sinal de mercado", "neg")
+    _kpi(nn3, "Neutras", str(news_summary["neutras"]), "sinal de mercado", "neu")
+
+    if not news.empty:
+        exibir = news[["fonte", "tema", "sentimento", "tag_html", "titulo", "url"]].copy()
+        st.dataframe(
+            exibir,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "url": st.column_config.LinkColumn("Link"),
+                "tag_html": st.column_config.TextColumn("Tag HTML"),
+            },
+        )
+    else:
+        st.warning("Não foi possível carregar manchetes nesta execução.")
 
 
 # ═══════════════════════════════════════════════════════
@@ -402,7 +477,7 @@ with tab3:
         with col_cr:
             sn = "neg" if corr["r"] < -0.3 else ("pos" if corr["r"] > 0.3 else "neu")
             sc = "badge-pos" if corr["significativo"] else "badge-neg"
-            sg = "Significativo" if corr["significativo"] else "Nao significativo"
+            sg = "Significativo" if corr["significativo"] else "Não significativo"
             st.markdown(
                 f"<div class='kpi' style='text-align:left; padding:22px;'>"
                 f"<div class='kpi-label'>r de Pearson</div>"
@@ -416,6 +491,52 @@ with tab3:
             )
         with col_sc:
             st.plotly_chart(viz.grafico_scatter_selic_ibov(merged), width='stretch', key='chart_scatter_t3')
+
+        if not corr["significativo"]:
+            st.info(
+                "Correlação fraca/não significativa no período analisado: a amostra cobre "
+                "~24 meses, e com poucas observações mensais um p ≥ 0,05 é estatisticamente "
+                "esperado — não é erro do código."
+            )
+
+        st.divider()
+        st.markdown("<div class='sec'>ANOVA — Regimes de Selic x Retorno Mensal do IBOVESPA</div>", unsafe_allow_html=True)
+        anova = analysis.anova_retorno_por_regime_selic(merged)
+        col_a1, col_a2 = st.columns([1, 1.8])
+        with col_a1:
+            sig_a = "badge-pos" if anova["significativo"] else "badge-neg"
+            rotulo_sig = "Significativo" if anova["significativo"] else "Não significativo"
+            st.markdown(
+                f"<div class='kpi' style='text-align:left; padding:22px;'>"
+                f"<div class='kpi-label'>ANOVA F</div>"
+                f"<div class='kpi-value warn' style='font-size:40px'>{anova['f_stat']:.4f}</div>"
+                f"<div style='margin:8px 0'><span class='{sig_a}'>{rotulo_sig}</span></div>"
+                f"<div style='color:#8892a4; font-size:12px;'>p = {anova['p_value']} | grupos = {anova['grupos_validos']}</div>"
+                f"<div style='color:#c8d6e5; font-size:13px; margin-top:10px; border-top:1px solid #2d3748; padding-top:8px;'>"
+                f"{anova['interpretacao']}</div>"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
+        with col_a2:
+            if not anova["resumo"].empty:
+                st.dataframe(
+                    anova["resumo"].style.format({
+                        "media": "{:.4f}",
+                        "mediana": "{:.4f}",
+                        "desvio_padrao": "{:.4f}",
+                    }),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.info("Não há observações suficientes para comparar os regimes de Selic.")
+
+        if not anova["significativo"]:
+            st.info(
+                "ANOVA sem diferença significativa entre os regimes de Selic: com ~24 meses "
+                "de dados divididos em poucos grupos, a potência estatística é baixa e um "
+                "p ≥ 0,05 é esperado — não é erro do código."
+            )
 
         st.divider()
         st.markdown("<div class='sec'>Estatísticas Descritivas — Retornos Diários (%)</div>", unsafe_allow_html=True)
@@ -456,7 +577,7 @@ with tab3:
 
         tend = analysis.tendencia_ibovespa(ibov_m)
         tc = "badge-pos" if tend["tendencia"] == "Alta" else "badge-neg"
-        sg = "Significativa" if tend["significativa"] else "Nao significativa"
+        sg = "Significativa" if tend["significativa"] else "Não significativa"
         st.markdown(
             f"<span class='{tc}'>Tendência: {tend['tendencia']}</span> | "
             f"Inclinação = {tend['inclinacao']:.2f} pts/dia | R² = {tend['r2']} | {sg}",
@@ -499,6 +620,15 @@ with tab4:
             _kpi(mk2, "MAE no Teste", f"{res['mae']:.4f}" if not np.isnan(res['mae']) else "N/A", "pp de retorno mensal", "neu")
             _kpi(mk3, "Obs. Treino",  str(res["n_treino"]), "Split 80/20 temporal", "neu")
             _kpi(mk4, "Obs. Teste",   str(res["n_teste"]),  "sem data leakage", "neu")
+
+            if (not np.isnan(res["r2"]) and res["r2"] < 0) or res["n_teste"] < 8:
+                st.warning(
+                    "**Limitação amostral:** a base tem ~22 observações mensais e apenas "
+                    f"{res['n_teste']} no conjunto de teste. Um R² negativo indica que o modelo "
+                    "não generaliza bem nesse horizonte curto — limitação esperada no contexto "
+                    "acadêmico do projeto. Por isso, a recomendação do simulador combina o ML "
+                    "com regras de negócio, e não depende só da predição."
+                )
 
             st.markdown("")
 

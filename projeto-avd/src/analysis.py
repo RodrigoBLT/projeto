@@ -3,6 +3,7 @@ Fase 3 — Análise Estatística Exploratória
 
 Métricas calculadas:
   - Correlação de Pearson: Selic × retorno mensal do IBOVESPA
+  - ANOVA entre regimes de Selic e retorno do IBOVESPA
   - Estatísticas descritivas: média, mediana, desvio padrão, assimetria, curtose
   - Análise de quartis e IQR
   - Detecção de outliers (regra de Tukey / Z-Score)
@@ -52,6 +53,66 @@ def pearson_selic_ibov(merged: pd.DataFrame) -> dict:
 def pearson_matrix(df: pd.DataFrame, colunas: list) -> pd.DataFrame:
     cols = [c for c in colunas if c in df.columns]
     return df[cols].corr(method="pearson").round(3)
+
+
+def anova_retorno_por_regime_selic(merged: pd.DataFrame) -> dict:
+    """
+    Compara o retorno mensal do IBOVESPA entre tres regimes de Selic:
+    baixa, moderada e alta.
+    """
+    df = merged[["selic_anual", "ibov_retorno_mensal"]].dropna().copy()
+    if df.empty:
+        return _anova_vazia()
+
+    df["regime_selic"] = pd.cut(
+        df["selic_anual"],
+        bins=[0.0, 0.09, 0.12, 1.0],
+        labels=["Baixa", "Moderada", "Alta"],
+        include_lowest=True,
+    )
+    grupos = {
+        regime: grupo["ibov_retorno_mensal"].values
+        for regime, grupo in df.groupby("regime_selic", observed=False)
+        if len(grupo) >= 2
+    }
+    resumo = (
+        df.groupby("regime_selic", observed=False)["ibov_retorno_mensal"]
+        .agg(["count", "mean", "median", "std"])
+        .reset_index()
+        .rename(columns={
+            "regime_selic": "Regime Selic",
+            "count": "n",
+            "mean": "media",
+            "median": "mediana",
+            "std": "desvio_padrao",
+        })
+    )
+
+    if len(grupos) < 2:
+        return {
+            **_anova_vazia(),
+            "resumo": resumo,
+            "interpretacao": "Não há grupos suficientes para comparar os regimes de Selic.",
+        }
+
+    f_stat, p_val = stats.f_oneway(*grupos.values())
+    medias = {regime: float(np.mean(valores)) for regime, valores in grupos.items()}
+    melhor_regime = max(medias, key=medias.get)
+
+    return {
+        "f_stat": round(float(f_stat), 4),
+        "p_value": round(float(p_val), 6),
+        "significativo": p_val < 0.05,
+        "grupos_validos": len(grupos),
+        "melhor_regime": melhor_regime,
+        "resumo": resumo.round(4),
+        "interpretacao": (
+            f"A ANOVA indica diferenca estatisticamente significativa entre regimes de Selic; "
+            f"o maior retorno medio apareceu no regime {melhor_regime}."
+            if p_val < 0.05 else
+            "A ANOVA nao encontrou evidencia estatistica suficiente de diferenca entre os regimes de Selic."
+        ),
+    }
 
 
 # ── Estatísticas Descritivas ──────────────────────────────────────────────────
@@ -143,4 +204,16 @@ def tendencia_ibovespa(ibov_metrics: pd.DataFrame) -> dict:
         "p_value":       round(float(p), 6),
         "tendencia":     "Alta" if slope > 0 else "Queda",
         "significativa": p < 0.05,
+    }
+
+
+def _anova_vazia() -> dict:
+    return {
+        "f_stat": float("nan"),
+        "p_value": float("nan"),
+        "significativo": False,
+        "grupos_validos": 0,
+        "melhor_regime": "indefinido",
+        "resumo": pd.DataFrame(),
+        "interpretacao": "Dados insuficientes para executar a ANOVA.",
     }

@@ -14,16 +14,11 @@ projeto-avd/
 ├── requirements.txt        # Dependências Python
 ├── main.py                 # Fase 5: Dashboard Streamlit (entry point)
 ├── src/
-│   ├── data_extraction.py  # Fase 1: Extração (yfinance + API BCB)
-│   ├── etl.py              # Fase 2: ETL & Data Wrangling
-│   ├── analysis.py         # Fase 3: Análise Estatística
+│   ├── data_extraction.py  # Fase 1: Scraping HTML + APIs financeiras
+│   ├── etl.py              # Fase 2: ETL, wrangling e sentimento das noticias
+│   ├── analysis.py         # Fase 3: Pearson, ANOVA, quartis e outliers
 │   ├── ml_model.py         # Fase 4 (ML): Regressão + Simulador
 │   └── visualization.py   # Fase 4 (Gestalt): 7 gráficos Plotly
-└── data/
-    ├── ibovespa.csv        # Série histórica diária do IBOVESPA
-    ├── selic.csv           # Taxa Selic mensal (BCB)
-    ├── cache.csv           # Dataset consolidado (gerado pelo ETL)
-    └── processed/          # Arquivos intermediários do pipeline
 ```
 
 ---
@@ -74,9 +69,9 @@ A Selic é a âncora de todo o sistema financeiro brasileiro:
 
 ### Fluxo do Dashboard
 
-1. **Contexto** → Selic atual, IBOVESPA × Selic nos últimos 12 meses, scatter correlação
+1. **Contexto** → Selic atual, IBOVESPA × Selic nos últimos 12 meses, scraping de notícias
 2. **Simulador** → Usuário insere valor/prazo/risco → vê retornos e recomendação
-3. **Análise Estatística** → Pearson, distribuição, quartis, outliers, heatmap, MAs
+3. **Análise Estatística** → Pearson, ANOVA, distribuição, quartis, outliers, heatmap, MAs
 4. **ML Recomendação** → Treina Ridge Regression → prediz retorno IBOVESPA → recomendação
 
 ---
@@ -103,9 +98,10 @@ A Selic é a âncora de todo o sistema financeiro brasileiro:
 |---|---|---|
 | **Yahoo Finance** | Histórico IBOVESPA (^BVSP) | `yfinance` |
 | **Banco Central do Brasil** | Meta Selic (SGS série 11) | REST API |
+| **InfoMoney / CNN Brasil** | Manchetes econômicas | Scraping HTML com `BeautifulSoup` |
 
-> Dados cacheados em `data/` para evitar sobrecarga nas APIs.  
-> Botão **🔄 Atualizar Dados** na sidebar força re-extração.
+> O app usa cache do Streamlit para evitar sobrecarga nas fontes.  
+> O botão **Atualizar Dados** na sidebar força nova extração.
 
 ---
 
@@ -113,9 +109,9 @@ A Selic é a âncora de todo o sistema financeiro brasileiro:
 
 | Fase | Arquivo | Conteúdo |
 |---|---|---|
-| 1 — Extração | `src/data_extraction.py` | yfinance + API BCB + fallback sintético |
-| 2 — ETL | `src/etl.py` | Limpeza, MA20/MA50, volatilidade, merge mensal |
-| 3 — Análise | `src/analysis.py` | Pearson, quartis, outliers IQR/Z-score, tendência |
+| 1 — Extração | `src/data_extraction.py` | APIs financeiras + scraping de manchetes HTML |
+| 2 — ETL | `src/etl.py` | Limpeza, MA20/MA50, volatilidade, merge mensal, sentimento |
+| 3 — Análise | `src/analysis.py` | Pearson, ANOVA, quartis, outliers IQR/Z-score, tendência |
 | 4 — Gestalt | `src/visualization.py` | 7 gráficos Plotly com princípios Gestalt |
 | 5 — Dashboard | `main.py` | 4 abas interativas, KPI cards, simulador, ML |
 
@@ -126,4 +122,5 @@ A Selic é a âncora de todo o sistema financeiro brasileiro:
 ```
 streamlit   pandas   numpy   requests
 yfinance    plotly   scikit-learn   scipy
+beautifulsoup4
 ```
